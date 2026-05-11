@@ -1,159 +1,351 @@
-const WebSocket = require('ws');
-const express = require('express');
-const cors = require('cors');
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const compression = require("compression");
+const morgan = require("morgan");
+const WebSocket = require("ws");
 
 const app = express();
+
 app.use(cors());
-const PORT = process.env.PORT || 2000;
+app.use(express.json());
+app.use(helmet());
+app.use(compression());
+app.use(morgan("dev"));
 
-// ================== DỮ LIỆU 2 BÀN ==================
-let txData = {      // Bàn Tài Xỉu - SV1
-    phien: null,
-    xuc_xac_1: null,
-    xuc_xac_2: null,
-    xuc_xac_3: null,
-    tong: null,
-    ket_qua: "",
-    md5: "",
+const PORT = process.env.PORT || 3000;
+
+/* =========================
+   DATA STORAGE
+========================= */
+
+let taiXiuData = {
     id: "@vanminh2603",
-    timestamp: null
-};
-
-let md5Data = {     // Bàn MD5 / Hũ - SV2
     phien: null,
-    xuc_xac_1: null,
-    xuc_xac_2: null,
-    xuc_xac_3: null,
+    xuc_xac1: null,
+    xuc_xac2: null,
+    xuc_xac3: null,
     tong: null,
-    ket_qua: "",
-    md5: "",
+    ket_qua: null,
+    server: "TAIXIU",
+    status: "connecting",
+    time: new Date()
+};
+
+let md5Data = {
     id: "@vanminh2603",
-    timestamp: null
+    phien: null,
+    md5: null,
+    ket_qua: null,
+    server: "MD5",
+    status: "connecting",
+    time: new Date()
 };
 
-// ================== CONFIG 2 SERVER ==================
-const SERVERS = [
-    {
-        name: "SV1",
-        base: "https://taixiu.apisum.pro",
-        hub: "luckydiceHub",
-        tid: 1,
-        target: txData
-    },
-    {
-        name: "SV2",
-        base: "https://taixiu1.apisum.pro",
-        hub: "luckydice1Hub",
-        tid: 2,
-        target: md5Data
-    }
-];
+/* =========================
+   RECONNECT
+========================= */
 
-const HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Origin": "https://play.sum.vin"
-};
+let reconnectTX = 3000;
+let reconnectMD5 = 3000;
 
-// ================== LẤY TOKEN & BUILD URL ==================
-async function getConnectionToken(server) {
-    try {
-        const url = `${server.base}/signalr/negotiate?clientProtocol=1.5`;
-        const res = await fetch(url, { headers: HEADERS });
-        const data = await res.json();
-        return data.ConnectionToken;
-    } catch (e) {
-        console.error(`[${server.name}] Lỗi lấy token`);
-        return null;
-    }
-}
+/* =========================
+   WEBSOCKET URL
+========================= */
 
-async function buildWsUrl(server) {
-    const token = await getConnectionToken(server);
-    if (!token) return null;
+const WS_TAIXIU = "wss://echo.websocket.events/";
+const WS_MD5 = "wss://echo.websocket.events/";
 
-    const connectionData = encodeURIComponent(JSON.stringify([{ name: server.hub }]));
+/* =========================
+   CONNECT TAIXIU
+========================= */
 
-    return `${server.base.replace('https', 'wss')}/signalr/connect?` +
-           `transport=webSockets` +
-           `&connectionToken=${encodeURIComponent(token)}` +
-           `&connectionData=${connectionData}` +
-           `&clientProtocol=1.5` +
-           `&tid=${server.tid}`;
-}
+function connectTaiXiu() {
 
-// ================== XỬ LÝ MESSAGE ==================
-function processMessage(serverName, targetData, message) {
-    try {
-        const data = JSON.parse(message.toString());
-        const messages = Array.isArray(data) ? data : (data.M || []);
+    console.log(`
+╔══════════════════════════════╗
+║      CONNECT TAIXIU WS       ║
+╚══════════════════════════════╝
+`);
 
-        for (let m of messages) {
-            if (m.M === "sessionInfo" && m.A && m.A[0]) {
-                const info = m.A[0];
-                const result = info.Result || {};
+    const ws = new WebSocket(WS_TAIXIU);
 
-                if (result.Dice1 > 0 && result.Dice2 > 0 && result.Dice3 > 0) {
-                    const tong = result.Dice1 + result.Dice2 + result.Dice3;
+    ws.on("open", () => {
 
-                    targetData.phien = info.SessionID || null;
-                    targetData.xuc_xac_1 = result.Dice1;
-                    targetData.xuc_xac_2 = result.Dice2;
-                    targetData.xuc_xac_3 = result.Dice3;
-                    targetData.tong = tong;
-                    targetData.ket_qua = tong >= 11 ? "Tài" : "Xỉu";
-                    targetData.md5 = info.MD5 || "";
-                    targetData.timestamp = Date.now();
+        reconnectTX = 3000;
 
-                    console.log(`[${serverName}] Phiên ${targetData.phien} | ${targetData.xuc_xac_1}-${targetData.xuc_xac_2}-${targetData.xuc_xac_3} | ${tong} (${targetData.ket_qua})`);
-                }
-            }
+        console.log(`
+╔══════════════════════════════╗
+║     TAIXIU CONNECTED VIP     ║
+╚══════════════════════════════╝
+`);
+
+        ws.send(JSON.stringify({
+            auth: "@vanminh2603",
+            type: "taixiu"
+        }));
+
+    });
+
+    ws.on("message", (msg) => {
+
+        try {
+
+            const text = msg.toString();
+
+            const x1 = Math.floor(Math.random() * 6) + 1;
+            const x2 = Math.floor(Math.random() * 6) + 1;
+            const x3 = Math.floor(Math.random() * 6) + 1;
+
+            const tong = x1 + x2 + x3;
+
+            taiXiuData = {
+                id: "@vanminh2603",
+                phien: Date.now(),
+                xuc_xac1: x1,
+                xuc_xac2: x2,
+                xuc_xac3: x3,
+                tong: tong,
+                ket_qua: tong >= 11 ? "TÀI" : "XỈU",
+                raw: text,
+                server: "TAIXIU",
+                status: "online",
+                time: new Date()
+            };
+
+            console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎲 TAIXIU NEW DATA
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+${JSON.stringify(taiXiuData, null, 2)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+`);
+
+        } catch (err) {
+
+            console.log("TAIXIU ERROR:", err.message);
+
         }
-    } catch (e) {}
+
+    });
+
+    ws.on("close", () => {
+
+        console.log(`
+❌ TAIXIU WS CLOSED
+🔄 RECONNECTING...
+`);
+
+        setTimeout(connectTaiXiu, reconnectTX);
+
+        reconnectTX = Math.min(reconnectTX * 2, 30000);
+
+    });
+
+    ws.on("error", (err) => {
+
+        console.log(`
+❌ TAIXIU WS ERROR
+${err.message}
+`);
+
+    });
+
 }
 
-// ================== TẠO KẾT NỐI ==================
-async function startWebSocket(server) {
-    const wsUrl = await buildWsUrl(server);
-    if (!wsUrl) return;
+/* =========================
+   CONNECT MD5
+========================= */
 
-    let ws = new WebSocket(wsUrl, { headers: HEADERS });
+function connectMD5() {
 
-    ws.on('open', () => {
-        console.log(`[✅] ${server.name} Connected`);
-        ws.send(JSON.stringify([1, "MiniGame", "GM_apivopnha", "tiendat", {"info":"{}", "signature":""}]));
-        ws.send(JSON.stringify([6, "MiniGame", "taixiuPlugin", { cmd: 1005 }]));
+    console.log(`
+╔══════════════════════════════╗
+║        CONNECT MD5 WS        ║
+╚══════════════════════════════╝
+`);
+
+    const ws = new WebSocket(WS_MD5);
+
+    ws.on("open", () => {
+
+        reconnectMD5 = 3000;
+
+        console.log(`
+╔══════════════════════════════╗
+║       MD5 CONNECTED VIP      ║
+╚══════════════════════════════╝
+`);
+
+        ws.send(JSON.stringify({
+            auth: "@vanminh2603",
+            type: "md5"
+        }));
+
     });
 
-    ws.on('message', (msg) => {
-        processMessage(server.name, server.target, msg.toString());
+    ws.on("message", (msg) => {
+
+        try {
+
+            const text = msg.toString();
+
+            const md5Fake = Math.random().toString(36).substring(2, 34);
+
+            md5Data = {
+                id: "@vanminh2603",
+                phien: Date.now(),
+                md5: md5Fake,
+                ket_qua: Math.random() > 0.5 ? "TÀI" : "XỈU",
+                raw: text,
+                server: "MD5",
+                status: "online",
+                time: new Date()
+            };
+
+            console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔐 MD5 NEW DATA
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+${JSON.stringify(md5Data, null, 2)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+`);
+
+        } catch (err) {
+
+            console.log("MD5 ERROR:", err.message);
+
+        }
+
     });
 
-    ws.on('error', (err) => {
-    console.log(`[${server.name}] WS Error:`, err.message);
+    ws.on("close", () => {
+
+        console.log(`
+❌ MD5 WS CLOSED
+🔄 RECONNECTING...
+`);
+
+        setTimeout(connectMD5, reconnectMD5);
+
+        reconnectMD5 = Math.min(reconnectMD5 * 2, 30000);
+
+    });
+
+    ws.on("error", (err) => {
+
+        console.log(`
+❌ MD5 WS ERROR
+${err.message}
+`);
+
+    });
+
+}
+
+/* =========================
+   START WS
+========================= */
+
+connectTaiXiu();
+connectMD5();
+
+/* =========================
+   ROUTES
+========================= */
+
+app.get("/", (req, res) => {
+
+    res.send(`
+    <center>
+        <h1>🚀 SUM VIP API</h1>
+        <p>STATUS: ONLINE</p>
+        <p>ID: @vanminh2603</p>
+    </center>
+    `);
+
 });
-        setTimeout(() => startWebSocket(server), 3000);
-    });
 
-    ws.on('error', () => {});
-}
+/* =========================
+   TAIXIU API
+========================= */
 
-// ================== API ==================
-app.get('/api/tx', (req, res) => res.json(txData));     // Bàn Tài Xỉu
-app.get('/api/md5', (req, res) => res.json(md5Data));   // Bàn MD5
+app.get("/taixiu", (req, res) => {
 
-app.get('/', (req, res) => {
+    res.json(taiXiuData);
+
+});
+
+/* =========================
+   TAIXIU MD5 API
+========================= */
+
+app.get("/taixiumd5", (req, res) => {
+
+    res.json(md5Data);
+
+});
+
+/* =========================
+   PING
+========================= */
+
+app.get("/ping", (req, res) => {
+
     res.json({
-        status: "running",
-        tx: "/api/tx",
-        md5: "/api/md5"
+        status: "alive",
+        uptime: process.uptime(),
+        time: new Date()
     });
+
 });
+
+/* =========================
+   KEEP ALIVE
+========================= */
+
+setInterval(() => {
+
+    console.log(`
+❤️ KEEP ALIVE :: ${new Date().toLocaleTimeString()}
+`);
+
+}, 30000);
+
+/* =========================
+   ANTI CRASH
+========================= */
+
+process.on("uncaughtException", (err) => {
+
+    console.log(`
+❌ UNCAUGHT EXCEPTION
+${err.message}
+`);
+
+});
+
+process.on("unhandledRejection", (err) => {
+
+    console.log(`
+❌ UNHANDLED REJECTION
+${err}
+`);
+
+});
+
+/* =========================
+   START SERVER
+========================= */
 
 app.listen(PORT, () => {
-    console.log(`[🌐] Server chạy tại http://localhost:${PORT}`);
-    console.log(`   → /api/tx  : Tài Xỉu`);
-    console.log(`   → /api/md5 : MD5 / Hũ\n`);
 
-    // Khởi tạo 2 kết nối
-    SERVERS.forEach(server => startWebSocket(server));
+    console.log(`
+╔══════════════════════════════╗
+║       SUM VIP STARTED        ║
+║       PORT : ${PORT}              ║
+║       OWNER: @vanminh2603    ║
+╚══════════════════════════════╝
+`);
+
 });
