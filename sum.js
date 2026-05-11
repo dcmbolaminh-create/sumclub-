@@ -15,7 +15,7 @@ let txData = {      // Bàn Tài Xỉu - SV1
     tong: null,
     ket_qua: "",
     md5: "",
-    id: "@tiendataox",
+    id: "@vanminh2603",
     timestamp: null
 };
 
@@ -27,7 +27,7 @@ let md5Data = {     // Bàn MD5 / Hũ - SV2
     tong: null,
     ket_qua: "",
     md5: "",
-    id: "@tiendataox",
+    id: "@vanminh2603",
     timestamp: null
 };
 
@@ -128,8 +128,9 @@ async function startWebSocket(server) {
         processMessage(server.name, server.target, msg.toString());
     });
 
-    ws.on('close', () => {
-        console.log(`[${server.name}] Closed → Reconnect...`);
+    ws.on('error', (err) => {
+    console.log(`[${server.name}] WS Error:`, err.message);
+});
         setTimeout(() => startWebSocket(server), 3000);
     });
 
