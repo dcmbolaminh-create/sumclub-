@@ -1,0 +1,15 @@
+{
+  "name": "sumjs-render",
+  "version": "1.0.0",
+  "description": "SUM.JS chạy Render ổn định",
+  "main": "sum.js",
+  "scripts": {
+    "start": "node sum.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
