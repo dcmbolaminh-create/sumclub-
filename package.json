@@ -1,15 +1,20 @@
 {
-  "name": "sumjs-render",
-  "version": "1.0.0",
-  "description": "SUM.JS chạy Render ổn định",
+  "name": "sum-vip-production",
+  "version": "3.0.0",
+  "description": "SUM VIP API TAIXIU + MD5 Production Render",
   "main": "sum.js",
   "scripts": {
-    "start": "node sum.js"
+    "start": "node --trace-warnings --max-old-space-size=256 sum.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "ws": "^8.18.0"
   }
 }
